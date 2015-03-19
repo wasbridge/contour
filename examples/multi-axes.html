@@ -12,7 +12,7 @@
 
     <style>
         .chart {
-            width: 600px;
+            width: 50%;
         }
     </style>
 
@@ -90,20 +90,24 @@
                 var optOffset = (this.options.multiAxes[index] || {}).offset;
                 var offsetFactor =  optOffset != null ? optOffset : 1;
                 var axisOffset = offsetFactor * _.nw.sum(this.axesWidths[pos].slice(0, pos === 'left' ? l++ : r++));
+                var svgElem = d3.selectAll('.axis-' + index);
 
                 if (pos === 'right') {
                     axisOffset = -(axisOffset + this.options.chart.plotWidth);
                 }
 
-                this._yAxisGroup.append('g')
-                    .attr('transform', 'translate(' + (-axisOffset) +', 0)')
+                if (svgElem.empty()) {
+                    svgElem = this._yAxisGroup.append('g');
+                }
+                
+                svgElem.attr('transform', 'translate(' + (-axisOffset) +', 0)')
                     .attr('class', 'axis-' + index)
                     .transition().duration(this._animationDuration())
                     .call(axis.axis().orient(pos))
                     .selectAll('.tick text')
                         .attr('dy', alignmentOffset[options.labels.verticalAlign]);
-            }, this);
 
+            }, this);
         },
 
         _calcAxisWidth: function (domain, options) {
@@ -210,6 +214,11 @@
         .tooltip()
         .render();
 
+    window.addEventListener('resize', function() {
+        chart.options.chart.animations.enable = false;
+        chart.resize().render();
+        chart.options.chart.animations.enable = true;
+    });
     </script>
 </body>
 </html>
