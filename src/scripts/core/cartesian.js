@@ -377,6 +377,32 @@
                         .attr('dy', alignmentOffset[options.labels.verticalAlign]);
             },
 
+            _renderYAxisTitle: function() {
+                var adjustFactor = 40/46.609; // this factor is to account for the difference between the actual svg size and what we get from the DOM
+                var bounds, x, y;
+                var el;
+
+                if (this.options.yAxis.title) {
+                    bounds = _.nw.textBounds(this.options.yAxis.title, '.y.axis-title');
+                    y = -this.options.chart.internalPadding.left + bounds.height * adjustFactor;
+                    x = 0;
+                    el = this._yAxisGroup.selectAll('.y.axis-title').data([1]);
+                    if (!el.node()) {
+                        el.enter().append('text')
+                            .attr('class', 'y axis-title');
+                    }
+
+                    d3.select(el.node())
+                        .attr('class', 'y axis-title')
+                        .attr('transform', 'rotate(-90)')
+                        .attr('x', x)
+                        .attr('y', y)
+                        .attr('dx', -(this.options.chart.plotHeight + bounds.width) / 2)
+                        .attr('dy', 0)
+                        .text(this.options.yAxis.title);
+                }
+            },
+
             renderAxisLabels: function () {
                 var adjustFactor = 40/46.609; // this factor is to account for the difference between the actual svg size and what we get from the DOM
                 var bounds, x, y;
@@ -400,25 +426,7 @@
                         .text(this.options.xAxis.title);
                 }
 
-                if (this.options.yAxis.title) {
-                    bounds = _.nw.textBounds(this.options.yAxis.title, '.y.axis-title');
-                    y = -this.options.chart.internalPadding.left + bounds.height * adjustFactor;
-                    x = 0;
-                    el = this._yAxisGroup.selectAll('.y.axis-title').data([1]);
-                    if (!el.node()) {
-                        el.enter().append('text')
-                            .attr('class', 'y axis-title');
-                    }
-
-                    d3.select(el.node())
-                        .attr('class', 'y axis-title')
-                        .attr('transform', 'rotate(-90)')
-                        .attr('x', x)
-                        .attr('y', y)
-                        .attr('dx', -(this.options.chart.plotHeight + bounds.width) / 2)
-                        .attr('dy', 0)
-                        .text(this.options.yAxis.title);
-                }
+                this._renderYAxisTitle();
 
                 return this;
             },

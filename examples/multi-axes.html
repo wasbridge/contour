@@ -45,14 +45,16 @@
 
         computeYScale: function () {
             var scaleDomains = _.mapValues(this.yDomainByAxis, function (domain, index) {
-                var options = _.merge(this.options, {yAxis:this.options.multiAxes[index]})
+                var options = _.merge({}, this.options);
+                options = _.merge(options, {yAxis:this.options.multiAxes[index]})
                 return this._getYScaledDomain(domain, options);
             }, this);
 
             this.axes = _.mapValues(this.yDomainByAxis, function (domain, index) {
-                var options = _.merge(this.options, {yAxis:this.options.multiAxes[index]})
+                var options = _.merge({}, this.options);
+                options = _.merge(options, {yAxis:this.options.multiAxes[index]})
                 var type = options.yAxis.type || 'linear';
-                return _.nw.yScaleFactory(this.dataSrc, this.options, type, domain);
+                return _.nw.yScaleFactory(this.dataSrc, options, type, domain);
             }, this);
 
             this.scales = _.mapValues(this.axes, function (axis, index) {
@@ -119,8 +121,55 @@
             }, this);
         },
 
-        _calcAxisWidth: function (domain, options) {
+        _renderYAxisTitle: function() {
+            var adjustFactor = 40/46.609; // this factor is to account for the difference between the actual svg size and what we get from the DOM
+            var bounds, x, y, dx, className;
+            var el;
+
+            _.forOwn(this.axes, function (axis, index) {
+                var options = _.merge({}, this.options);
+                options = _.merge(options, {yAxis:options.multiAxes[parseInt(index)]});
+
+                if (options.yAxis.title) {
+                    if (options.yAxis.position == "right") {
+                        className = 'rightY axis-title';
+                        bounds = _.nw.textBounds(options.yAxis.title, '.rightY.axis-title');
+                        y = options.chart.plotWidth + options.chart.internalPadding.right - bounds.height * adjustFactor;
+                        x = 0
+                        dx = -(options.chart.plotHeight + bounds.width) / 2
+                        el = this._yAxisGroup.selectAll('.rightY.axis-title').data([1]);
+                    } else {
+                        className = 'y axis-title';
+                        bounds = _.nw.textBounds(options.yAxis.title, '.y.axis-title');
+                        y = -options.chart.internalPadding.left + bounds.height * adjustFactor;
+                        x = 0;
+                        dx = -(options.chart.plotHeight + bounds.width) / 2
+                        el = this._yAxisGroup.selectAll('.y.axis-title').data([1]);
+                    }
+                   
+                    if (!el.node()) {
+                        el.enter().append('text')
+                            .attr('class', className);
+                    }
+
+                    d3.select(el.node())
+                        .attr('class', className)
+                        .attr('transform', 'rotate(-90)')
+                        .attr('x', x)
+                        .attr('y', y)
+                        .attr('dx', dx)
+                        .attr('dy', 0)
+                        .text(options.yAxis.title);
+                }
+
+            }, this);
+        },
+
+        _calcAxisWidth: function (domain, options, axisIndex) {
             var maxTickSize = function (options) { return Math.max(options.outerTickSize || 0, options.innerTickSize || 0); };
+            options = _.merge({}, options);
+            options = _.merge(options, {yAxis:options.multiAxes[axisIndex]});
+
             var yOptions = options.yAxis;
             var interAxisPadding = 5;
 
@@ -131,21 +180,33 @@
             var format = yOptions.labels.formatter || d3.format(yOptions.labels.format || ',.0f');
             var yAxisText = _.map(yLabels, format).join('<br>');
             var yLabelBounds = _.nw.textBounds(yAxisText, '.y.axis');
-            return maxTickSize(yOptions) + (yOptions.tickPadding || 0) +
+
+            
+            var titleBounds;
+            var width = 0;
+            if(yOptions.title) {
+                titleBounds = _.nw.textBounds(yOptions.title, '.y.axis-title');
+                width += titleBounds.height + yOptions.titlePadding;
+            }
+
+            return width + maxTickSize(yOptions) + (yOptions.tickPadding || 0) +
                 yLabelBounds.width + interAxisPadding;
         },
 
         _getAdjustedLeftPadding: function () {
-
             var options = this.options;
-            var leftAxisDomains = _.filter(this.yDomainByAxis, function (domain, index) {
+            var mappedAxisDomains = _.map(this.yDomainByAxis, function(domain, index) {
+                return {domain:domain, index:parseInt(index)};
+            });
+
+            var leftAxisDomains = _.filter(mappedAxisDomains, function (domain, index) {
                 // include anything that is not position === 'right'
                 return (options.multiAxes[index] || {}).position !== 'right';
             });
 
             this.axesWidths = this.axesWidths || {};
-            this.axesWidths.left = _.map(leftAxisDomains, function (domain, index) {
-                return this._calcAxisWidth.call(this, domain, options);
+            this.axesWidths.left = _.map(leftAxisDomains, function (obj, index) {
+                return this._calcAxisWidth.call(this, obj.domain, options, obj.index);
             }, this);
 
             return _.nw.sum(this.axesWidths.left) || this.options.chart.padding.left;
@@ -153,13 +214,17 @@
 
         _getAdjustedRightPadding: function () {
             var options = this.options;
-            var rightAxisDomains = _.filter(this.yDomainByAxis, function (domain, index) {
+            var mappedAxisDomains = _.map(this.yDomainByAxis, function(domain, index) {
+                return {domain:domain, index:parseInt(index)};
+            });
+
+            var rightAxisDomains = _.filter(mappedAxisDomains, function (domain, index) {
                 return (options.multiAxes[index] || {}).position === 'right';
             });
 
             this.axesWidths = this.axesWidths || {};
-            this.axesWidths.right = _.map(rightAxisDomains, function (domain, index) {
-                return this._calcAxisWidth.call(this, domain, options);
+            this.axesWidths.right = _.map(rightAxisDomains, function (obj, index) {
+                return this._calcAxisWidth.call(this, obj.domain, options, obj.index);
             }, this);
 
             return _.nw.sum(this.axesWidths.right) || this.options.chart.padding.right;
@@ -234,6 +299,7 @@
                     });
 
                 this.svg.selectAll('.multi-axis').remove();
+                this.svg.selectAll('.axis-title').remove();
             }
         }
     });
@@ -245,16 +311,13 @@
                 title: 'some title (kg)',
             },
 
-            yAxis: {
-                title: 'other title',
-            },
-
             multiAxes: [{
                 position: 'left',
-                min: 0,
-                max: 100
+                title: 'left',
+                ticks: 3
             }, {
-                position: 'right'
+                position: 'right',
+                title: 'right'
             }],
 
             line: {
@@ -307,6 +370,7 @@
         renderChart();
     });
     
+    addSeries();
     addSeries();
     </script>
 </body>
