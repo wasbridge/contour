@@ -21,6 +21,10 @@
 
     <h2>Contour Multiple Axes Example</h2>
 
+    <button id="data">New Data</button>
+    <button id="addSeries">New Series</button>
+    <button id="removeSeries">Remove Series</button>
+    
     <div class="container">
         <div class="chart"></div>
     </div>
@@ -40,16 +44,18 @@
         },
 
         computeYScale: function () {
-            var scaleDomains = _.map(this.yDomainByAxis, function (domain, index) {
-                return this._getYScaledDomain(domain, this.options);
+            var scaleDomains = _.mapValues(this.yDomainByAxis, function (domain, index) {
+                var options = _.merge(this.options, {yAxis:this.options.multiAxes[index]})
+                return this._getYScaledDomain(domain, options);
             }, this);
 
-            this.axes = _.map(this.yDomainByAxis, function (domain, index) {
-                var type = this.options.multiAxes[index].type || 'linear';
+            this.axes = _.mapValues(this.yDomainByAxis, function (domain, index) {
+                var options = _.merge(this.options, {yAxis:this.options.multiAxes[index]})
+                var type = options.yAxis.type || 'linear';
                 return _.nw.yScaleFactory(this.dataSrc, this.options, type, domain);
             }, this);
 
-            this.scales = _.map(this.axes, function (axis, index) {
+            this.scales = _.mapValues(this.axes, function (axis, index) {
                 return axis.scale(scaleDomains[index]);
             });
 
@@ -61,9 +67,12 @@
                 return v.ownData && _.nw.isSupportedDataFormat(v.data);
             });
             var byAxis = _.groupBy(dataVis, function (vis) { return vis.options[vis.type].axis || 0; });
-            var extents = _.map(byAxis, function (vis, index) {
+            var extents = _.mapValues(byAxis, function (vis, index) {
                 return d3.extent(_.flatten(_.pluck(vis, 'yExtent')));
             });
+
+            if (!extents.hasOwnProperty('0'))
+                extents[0] = [0, 10];
 
             this.yDomainByAxis = extents;
         },
@@ -85,12 +94,12 @@
             var alignmentOffset = { bottom: '.8em', middle: '.35em', top: '0' };
             var l = 0, r = 0;
 
-            _.each(this.axes, function (axis, index) {
+            _.forOwn(this.axes, function (axis, index) {
                 var pos = (this.options.multiAxes[index] || {}).position || 'left';
                 var optOffset = (this.options.multiAxes[index] || {}).offset;
                 var offsetFactor =  optOffset != null ? optOffset : 1;
                 var axisOffset = offsetFactor * _.nw.sum(this.axesWidths[pos].slice(0, pos === 'left' ? l++ : r++));
-                var svgElem = d3.selectAll('.axis-' + index);
+                var svgElem = this.svg.selectAll('.multi-axis-' + index);
 
                 if (pos === 'right') {
                     axisOffset = -(axisOffset + this.options.chart.plotWidth);
@@ -101,7 +110,7 @@
                 }
                 
                 svgElem.attr('transform', 'translate(' + (-axisOffset) +', 0)')
-                    .attr('class', 'axis-' + index)
+                    .attr('class', 'multi-axis multi-axis-' + index)
                     .transition().duration(this._animationDuration())
                     .call(axis.axis().orient(pos))
                     .selectAll('.tick text')
@@ -139,7 +148,7 @@
                 return this._calcAxisWidth.call(this, domain, options);
             }, this);
 
-            return _.nw.sum(this.axesWidths.left);
+            return _.nw.sum(this.axesWidths.left) || this.options.chart.padding.left;
         },
 
         _getAdjustedRightPadding: function () {
@@ -153,7 +162,7 @@
                 return this._calcAxisWidth.call(this, domain, options);
             }, this);
 
-            return _.nw.sum(this.axesWidths.right);
+            return _.nw.sum(this.axesWidths.right) || this.options.chart.padding.right;
         },
 
         renderVisualizations: function () {
@@ -178,9 +187,56 @@
             return this;
         },
 
-    });
+        visualizationIndexes: function(visType) {
+            return _.filter(_.map(this._visualizations, function(viz, index) {
+                    return viz.type == visType ? index : -1;
+                }), 
+                function(d) { 
+                    return d >= 0
+                });
+        },
 
-    _.nw.addAxis('MyCustomAxis', _.nw.axes.LogYAxis);
+        pushVisualization: function(visType, data, options, insertIndex) {
+            this[visType](data, options);
+            var instance = this._visualizations.pop();
+
+            if (insertIndex == undefined) {
+                insertIndex = 0;
+                _.each(this._visualizations, function(viz, index) {
+                    if (viz.type == instance.type && insertIndex <= index)
+                        insertIndex = index + 1;
+                })
+            }
+
+            this._visualizations.splice(insertIndex, 0, instance);
+            
+            if (this.svg) {
+                instance.layer = this.svg.insert('g', 'g[vis-id="' + (insertIndex + 1) + '"]');
+                instance.layer.attr('vis-id', insertIndex)
+                    .attr('vis-type', instance.type);
+
+                this.svg.selectAll('g[vis-id]')
+                    .attr('vis-id', function(d, index) { 
+                        return index; 
+                    });
+            }
+        },
+
+        popVisualization: function(visIndex) {
+            var instance = this._visualizations.splice(visIndex, 1)[0];
+            
+            if (this.svg) {
+                this.svg.select('g[vis-id="' + (visIndex + 1) + '"]').remove();
+
+                this.svg.selectAll('g[vis-id]')
+                    .attr('vis-id', function(d, index) { 
+                        return index; 
+                    });
+
+                this.svg.selectAll('.multi-axis').remove();
+            }
+        }
+    });
 
     var chart = new Contour({
             el: '.chart',
@@ -195,9 +251,8 @@
 
             multiAxes: [{
                 position: 'left',
-                type: 'MyCustomAxis'
-            }, {
-                position: 'left',
+                min: 0,
+                max: 100
             }, {
                 position: 'right'
             }],
@@ -208,17 +263,51 @@
         })
         .cartesian()
         .complex()
-        .line([1,2,3,4,5, 10, 2,1], { axis: 0 })
-        .line([50,30,40,90,100], { axis: 1 })
-        .area([1, 100,200,300, 200, 5], { axis: 2 })
+        .legend()
         .tooltip()
-        .render();
+
+    var renderChart = function() {
+        var fullData = [];
+
+        var rawSeries = _.times(10, 1);   
+        var indexes = chart.visualizationIndexes('line');
+        _.forEach(indexes, function(d) {
+            fullData.push({
+                name: 'Plot ' + (d+1), 
+                data: rawSeries.map(function(val, index) { return { x:index, y:Math.random() * Math.pow(10, d + 1) } })
+            });
+            chart.select(d).setData([fullData[fullData.length - 1]]);
+        })
+
+        chart.select(chart.visualizationIndexes('legend')[0]).setData(fullData);
+        chart.select(chart.visualizationIndexes('tooltip')[0]).setData(fullData);
+        chart.render();
+    }
+
+    var addSeries = function() {
+        var indexes = chart.visualizationIndexes('line');
+        var index = indexes.length % 2;
+        chart.pushVisualization('line', [], { axis: index });
+        renderChart();
+    }
 
     window.addEventListener('resize', function() {
         chart.options.chart.animations.enable = false;
         chart.resize().render();
         chart.options.chart.animations.enable = true;
     });
+
+    $('#data').on('click', renderChart);
+    
+    $('#addSeries').on('click', addSeries);
+
+    $('#removeSeries').on('click', function() {
+        var indexes = chart.visualizationIndexes('line');
+        chart.popVisualization(indexes[indexes.length - 1]);
+        renderChart();
+    });
+    
+    addSeries();
     </script>
 </body>
 </html>
